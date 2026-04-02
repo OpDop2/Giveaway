@@ -722,7 +722,7 @@ def clear_history():
 # RUN BOTH SERVICES
 # ============================================================
 
-deft run_flask():
+def run_flask():
     app.run(host="0.0.0.0", port=FLASK_PORT, debug=False, use_reloader=False)
 
 def main():
