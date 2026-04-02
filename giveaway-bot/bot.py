@@ -23,6 +23,7 @@ FLASK_PORT = int(os.getenv("PORT", 5000))
 GIVEAWAY_HOST_ROLE = "Giveaway Host"
 ROLE_CONFIG_FILE = "role_config.json"
 HISTORY_FILE = "giveaway_history.json"
+ACTIVE_GIVEAWAYS_FILE = "active_giveaways.json"
 
 # ============================================================
 # DATA HELPERS
@@ -62,6 +63,16 @@ def save_to_history(giveaway_data, winners):
     })
     with open(HISTORY_FILE, "w") as f:
         json.dump(history, f, indent=2)
+
+def save_active_giveaways():
+    with open(ACTIVE_GIVEAWAYS_FILE, "w") as f:
+        json.dump(active_giveaways, f, indent=2)
+
+def load_active_giveaways_from_file():
+    if not os.path.exists(ACTIVE_GIVEAWAYS_FILE):
+        return {}
+    with open(ACTIVE_GIVEAWAYS_FILE, "r") as f:
+        return json.load(f)
 
 # ============================================================
 # GIVEAWAY STORAGE
@@ -190,6 +201,7 @@ class GiveawayView(discord.ui.View):
             "display_name": interaction.user.display_name,
             "entries": entries,
         }
+        save_active_giveaways()
 
         await interaction.response.send_message(
             f"✅ You've entered the giveaway for **{giveaway['prize']}** with "
@@ -278,6 +290,7 @@ class GiveawayModal(discord.ui.Modal, title="🎉 Create a Giveaway"):
 
         giveaway_data["message_id"] = str(giveaway_msg.id)
         active_giveaways[str(giveaway_msg.id)] = giveaway_data
+        save_active_giveaways()
 
         real_view = GiveawayView(str(giveaway_msg.id))
         await giveaway_msg.edit(embed=build_embed(giveaway_data), view=real_view)
@@ -305,6 +318,7 @@ async def end_giveaway(message_id: str, early: bool = False):
 
     giveaway = active_giveaways.pop(msg_id)
     giveaway["ended"] = True
+    save_active_giveaways()
 
     pool = []
     for uid, data in giveaway["entries"].items():
@@ -385,6 +399,32 @@ async def on_ready():
         print(f"🔄 Synced {len(synced)} slash command(s)")
     except Exception as e:
         print(f"⚠️ Slash sync error: {e}")
+
+    # Restore active giveaways that were running before restart
+    restored = load_active_giveaways_from_file()
+    for msg_id, giveaway in restored.items():
+        end_time = datetime.fromisoformat(giveaway["end_time"])
+        remaining = (end_time - datetime.utcnow()).total_seconds()
+
+        if remaining <= 0:
+            # Already expired while bot was offline — end it now
+            print(f"⏰ Giveaway {msg_id} expired while offline, ending now...")
+            active_giveaways[msg_id] = giveaway
+            await end_giveaway(msg_id)
+        else:
+            # Still running — restore and reschedule timer
+            active_giveaways[msg_id] = giveaway
+            print(f"♻️  Restored giveaway '{giveaway['prize']}' — {int(remaining)}s remaining")
+
+            async def resume_timer(mid=msg_id, secs=remaining):
+                await asyncio.sleep(secs)
+                if mid in active_giveaways:
+                    await end_giveaway(mid)
+
+            bot.loop.create_task(resume_timer())
+
+    if restored:
+        print(f"✅ Restored {len(restored)} active giveaway(s) from disk.")
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
