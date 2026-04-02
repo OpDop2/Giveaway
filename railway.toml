@@ -1,5 +1,2 @@
-[build]
-builder = "RAILWAYFILE"
-
 [deploy]
 startCommand = "python bot.py"
