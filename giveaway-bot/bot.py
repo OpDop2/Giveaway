@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import asyncio
 import random
@@ -76,7 +77,7 @@ ended_giveaways = {}    # message_id (str) -> giveaway dict (kept for reroll)
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="~", intents=intents)
 
 # ============================================================
 # HELPERS
@@ -155,7 +156,7 @@ def build_embed(giveaway, ended=False):
     return embed
 
 # ============================================================
-# GIVEAWAY VIEW (Persistent Button)
+# GIVEAWAY VIEW (Persistent JOIN Button)
 # ============================================================
 
 class GiveawayView(discord.ui.View):
@@ -203,6 +204,95 @@ class GiveawayView(discord.ui.View):
                 await msg.edit(embed=build_embed(giveaway), view=self)
         except Exception:
             pass
+
+# ============================================================
+# GIVEAWAY MODAL (Slash Command Popup)
+# ============================================================
+
+class GiveawayModal(discord.ui.Modal, title="🎉 Create a Giveaway"):
+    prize = discord.ui.TextInput(
+        label="Prize",
+        placeholder="e.g. Nitro, $10 Steam Gift Card, Custom Role",
+        min_length=1,
+        max_length=100,
+    )
+    duration = discord.ui.TextInput(
+        label="Duration",
+        placeholder="e.g. 30s, 10m, 2h, 1d",
+        min_length=2,
+        max_length=10,
+    )
+    winners = discord.ui.TextInput(
+        label="Number of Winners",
+        placeholder="e.g. 1",
+        default="1",
+        min_length=1,
+        max_length=3,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        duration_secs = parse_duration(self.duration.value)
+        if not duration_secs or duration_secs <= 0:
+            await interaction.response.send_message(
+                "❌ Invalid duration. Use formats like `30s`, `10m`, `2h`, `1d`.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            winner_count = int(self.winners.value.strip())
+            if winner_count <= 0:
+                raise ValueError
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Number of winners must be a positive integer.",
+                ephemeral=True
+            )
+            return
+
+        end_time = datetime.utcnow() + timedelta(seconds=duration_secs)
+        giveaway_data = {
+            "prize": self.prize.value.strip(),
+            "host_id": str(interaction.user.id),
+            "host_name": str(interaction.user),
+            "channel_id": str(interaction.channel.id),
+            "channel_name": interaction.channel.name,
+            "guild_id": str(interaction.guild.id),
+            "guild_name": interaction.guild.name,
+            "winner_count": winner_count,
+            "end_time": end_time.isoformat(),
+            "duration_secs": duration_secs,
+            "entries": {},
+            "last_winners": [],
+            "last_winner_names": [],
+            "ended": False,
+            "message_id": "",
+            "started_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+        }
+
+        embed = build_embed(giveaway_data)
+        placeholder_view = GiveawayView("0")
+
+        await interaction.response.send_message(embed=embed, view=placeholder_view)
+        giveaway_msg = await interaction.original_response()
+
+        giveaway_data["message_id"] = str(giveaway_msg.id)
+        active_giveaways[str(giveaway_msg.id)] = giveaway_data
+
+        real_view = GiveawayView(str(giveaway_msg.id))
+        await giveaway_msg.edit(embed=build_embed(giveaway_data), view=real_view)
+
+        async def timer_task():
+            await asyncio.sleep(duration_secs)
+            if str(giveaway_msg.id) in active_giveaways:
+                await end_giveaway(str(giveaway_msg.id))
+
+        bot.loop.create_task(timer_task())
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        await interaction.response.send_message(
+            "❌ Something went wrong. Please try again.", ephemeral=True
+        )
 
 # ============================================================
 # END GIVEAWAY LOGIC
@@ -257,7 +347,7 @@ async def end_giveaway(message_id: str, early: bool = False):
             mentions = " ".join(f"<@{wid}>" for wid in winner_ids)
             await channel.send(
                 f"🎉 Congratulations {mentions}! You won **{giveaway['prize']}**!\n"
-                f"*(Host can use `!reroll {msg_id}` to reroll)*"
+                f"*(Use `/reroll {msg_id}` to reroll)*"
             )
         else:
             await channel.send(
@@ -266,6 +356,21 @@ async def end_giveaway(message_id: str, early: bool = False):
 
     save_to_history(giveaway, winner_names)
     return winner_ids, winner_names
+
+# ============================================================
+# PERMISSION CHECK
+# ============================================================
+
+def has_giveaway_host():
+    async def predicate(interaction: discord.Interaction) -> bool:
+        role = discord.utils.get(interaction.user.roles, name=GIVEAWAY_HOST_ROLE)
+        if role is None:
+            await interaction.response.send_message(
+                "You don't have permission to host giveaways.", ephemeral=True
+            )
+            return False
+        return True
+    return app_commands.check(predicate)
 
 # ============================================================
 # BOT EVENTS
@@ -281,199 +386,72 @@ async def on_ready():
     except Exception as e:
         print(f"⚠️ Slash sync error: {e}")
 
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CheckFailure):
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "You don't have permission to host giveaways.", ephemeral=True
+            )
+    else:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                f"❌ An error occurred: {error}", ephemeral=True
+            )
+
 # ============================================================
-# PERMISSION DECORATOR
+# SLASH COMMANDS
 # ============================================================
 
-def giveaway_host_only():
-    async def predicate(ctx):
-        role = discord.utils.get(ctx.author.roles, name=GIVEAWAY_HOST_ROLE)
-        if role is None:
-            await ctx.reply("You don't have permission to host giveaways.")
-            return False
-        return True
-    return commands.check(predicate)
-
-# ============================================================
-# COMMANDS
-# ============================================================
-
-@bot.command(name="giveaway", aliases=["gstart", "gcreate"])
-@giveaway_host_only()
-async def giveaway_cmd(ctx):
-    """Start a new giveaway interactively."""
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel
-
-    setup_msg = await ctx.send(
-        "🎉 **Giveaway Setup** — I'll ask you a few questions.\n\n"
-        "**Step 1/3** — What is the **prize**?"
-    )
-
-    try:
-        msg = await bot.wait_for("message", check=check, timeout=60)
-        prize = msg.content.strip()
-        if not prize:
-            await ctx.send("❌ Prize cannot be empty. Setup cancelled.")
-            return
-    except asyncio.TimeoutError:
-        await ctx.send("⏰ Setup timed out. Please run `!giveaway` again.")
-        return
-
-    await ctx.send(
-        "**Step 2/3** — How long should the giveaway last?\n"
-        "*(e.g. `30s`, `10m`, `2h`, `1d`)*"
-    )
-    try:
-        msg = await bot.wait_for("message", check=check, timeout=60)
-        duration_secs = parse_duration(msg.content)
-        if not duration_secs or duration_secs <= 0:
-            await ctx.send("❌ Invalid duration. Setup cancelled.")
-            return
-    except asyncio.TimeoutError:
-        await ctx.send("⏰ Setup timed out. Please run `!giveaway` again.")
-        return
-
-    await ctx.send("**Step 3/3** — How many **winners**?")
-    try:
-        msg = await bot.wait_for("message", check=check, timeout=60)
-        try:
-            winner_count = int(msg.content.strip())
-            if winner_count <= 0:
-                raise ValueError
-        except ValueError:
-            await ctx.send("❌ Invalid number. Setup cancelled.")
-            return
-    except asyncio.TimeoutError:
-        await ctx.send("⏰ Setup timed out. Please run `!giveaway` again.")
-        return
-
-    try:
-        await setup_msg.delete()
-    except Exception:
-        pass
-
-    end_time = datetime.utcnow() + timedelta(seconds=duration_secs)
-    giveaway_data = {
-        "prize": prize,
-        "host_id": str(ctx.author.id),
-        "host_name": str(ctx.author),
-        "channel_id": str(ctx.channel.id),
-        "channel_name": ctx.channel.name,
-        "guild_id": str(ctx.guild.id),
-        "guild_name": ctx.guild.name,
-        "winner_count": winner_count,
-        "end_time": end_time.isoformat(),
-        "duration_secs": duration_secs,
-        "entries": {},
-        "last_winners": [],
-        "last_winner_names": [],
-        "ended": False,
-        "message_id": "",
-        "started_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-    }
-
-    embed = build_embed(giveaway_data)
-    placeholder_view = GiveawayView("0")
-    giveaway_msg = await ctx.send(embed=embed, view=placeholder_view)
-
-    giveaway_data["message_id"] = str(giveaway_msg.id)
-    active_giveaways[str(giveaway_msg.id)] = giveaway_data
-
-    real_view = GiveawayView(str(giveaway_msg.id))
-    await giveaway_msg.edit(embed=build_embed(giveaway_data), view=real_view)
-
-    confirm = await ctx.send(
-        f"✅ Giveaway started! Message ID: `{giveaway_msg.id}`\n"
-        f"Use `!gend {giveaway_msg.id}` to end early.",
-        delete_after=15
-    )
-
-    async def timer_task():
-        await asyncio.sleep(duration_secs)
-        if str(giveaway_msg.id) in active_giveaways:
-            await end_giveaway(str(giveaway_msg.id))
-
-    bot.loop.create_task(timer_task())
+@bot.tree.command(name="giveaway", description="Start a new giveaway")
+@has_giveaway_host()
+async def giveaway_slash(interaction: discord.Interaction):
+    """Opens a popup form to create a giveaway."""
+    await interaction.response.send_modal(GiveawayModal())
 
 
-@bot.command(name="gend")
-@giveaway_host_only()
-async def gend_cmd(ctx, message_id: str = None):
-    """End a giveaway early. Usage: !gend [message_id]"""
+@bot.tree.command(name="gend", description="End a giveaway early")
+@app_commands.describe(message_id="Message ID of the giveaway (leave blank for the latest)")
+@has_giveaway_host()
+async def gend_slash(interaction: discord.Interaction, message_id: str = None):
     if not message_id:
         if not active_giveaways:
-            await ctx.reply("❌ No active giveaways to end.")
+            await interaction.response.send_message("❌ No active giveaways to end.", ephemeral=True)
             return
         message_id = list(active_giveaways.keys())[-1]
 
     if message_id not in active_giveaways:
-        await ctx.reply(f"❌ No active giveaway found with ID `{message_id}`.")
+        await interaction.response.send_message(
+            f"❌ No active giveaway found with ID `{message_id}`.", ephemeral=True
+        )
         return
 
-    await ctx.reply("⏹️ Ending the giveaway early...")
+    await interaction.response.send_message("⏹️ Ending the giveaway early...", ephemeral=True)
     result = await end_giveaway(message_id, early=True)
 
     if result:
         _, winner_names = result
         if winner_names:
-            await ctx.send(f"✅ Done! Winners: {', '.join(winner_names)}")
+            await interaction.edit_original_response(
+                content=f"✅ Done! Winners: {', '.join(winner_names)}"
+            )
         else:
-            await ctx.send("✅ Giveaway ended — no entries, no winners.")
+            await interaction.edit_original_response(
+                content="✅ Giveaway ended — no entries, no winners."
+            )
 
 
-@bot.command(name="reroll")
-@giveaway_host_only()
-async def reroll_cmd(ctx, message_id: str = None):
-    """Reroll winners for a recently ended giveaway. Usage: !reroll [message_id]"""
+@bot.tree.command(name="reroll", description="Reroll winners for a recently ended giveaway")
+@app_commands.describe(message_id="Message ID of the ended giveaway (leave blank for the latest)")
+@has_giveaway_host()
+async def reroll_slash(interaction: discord.Interaction, message_id: str = None):
     giveaway = None
 
     if message_id and message_id in ended_giveaways:
         giveaway = ended_giveaways[message_id]
     elif not message_id and ended_giveaways:
-        msg_id = list(ended_giveaways.keys())[-1]
-        giveaway = ended_giveaways[msg_id]
-        message_id = msg_id
-    else:
-        history = load_history()
-        if history:
-            target = None
-            if message_id:
-                for g in history:
-                    if g.get("message_id") == message_id:
-                        target = g
-                        break
-            else:
-                target = history[0] if history else None
-
-            if target and target.get("entries_snapshot"):
-                entries_snap = target["entries_snapshot"]
-                prize = target["prize"]
-                winner_count = target["winner_count"]
-            else:
-                await ctx.reply("❌ Couldn't find giveaway data to reroll.")
-                return
-
-            pool = []
-            for uid, data in entries_snap.items():
-                pool.extend([uid] * data.get("entries", 1))
-
-            if not pool:
-                await ctx.reply("❌ No entries to reroll.")
-                return
-
-            unique_pool = list(set(pool))
-            count = min(winner_count, len(unique_pool))
-            winner_ids = random.sample(unique_pool, count)
-            winner_mentions = " ".join(f"<@{wid}>" for wid in winner_ids)
-
-            await ctx.send(
-                f"🔄 **Reroll!** New winner{'s' if count > 1 else ''} for **{prize}**: {winner_mentions} 🎉"
-            )
-            return
-        else:
-            await ctx.reply("❌ No ended giveaways found to reroll.")
-            return
+        message_id = list(ended_giveaways.keys())[-1]
+        giveaway = ended_giveaways[message_id]
 
     if giveaway:
         entries = giveaway.get("entries", {})
@@ -482,22 +460,21 @@ async def reroll_cmd(ctx, message_id: str = None):
             pool.extend([uid] * data.get("entries", 1))
 
         if not pool:
-            await ctx.reply("❌ No entries to reroll from.")
+            await interaction.response.send_message("❌ No entries to reroll from.", ephemeral=True)
             return
 
         unique_pool = list(set(pool))
         count = min(giveaway["winner_count"], len(unique_pool))
         winner_ids = random.sample(unique_pool, count)
-        winner_names = [entries[wid].get("username", wid) for wid in winner_ids]
         winner_mentions = " ".join(f"<@{wid}>" for wid in winner_ids)
 
-        await ctx.send(
+        await interaction.response.send_message(
             f"🔄 **Reroll!** New winner{'s' if count > 1 else ''} for **{giveaway['prize']}**: {winner_mentions} 🎉"
         )
 
-        channel = bot.get_channel(int(giveaway["channel_id"]))
-        if channel and message_id:
-            try:
+        try:
+            channel = bot.get_channel(int(giveaway["channel_id"]))
+            if channel and message_id:
                 msg = await channel.fetch_message(int(message_id))
                 ended_embed = build_embed(giveaway, ended=True)
                 ended_embed.add_field(
@@ -506,16 +483,48 @@ async def reroll_cmd(ctx, message_id: str = None):
                     inline=False
                 )
                 await msg.edit(embed=ended_embed)
-            except Exception:
-                pass
+        except Exception:
+            pass
+        return
+
+    history = load_history()
+    target = None
+    if message_id:
+        for g in history:
+            if g.get("message_id") == message_id:
+                target = g
+                break
+    elif history:
+        target = history[0]
+
+    if target and target.get("entries_snapshot"):
+        pool = []
+        for uid, data in target["entries_snapshot"].items():
+            pool.extend([uid] * data.get("entries", 1))
+
+        if not pool:
+            await interaction.response.send_message("❌ No entries to reroll.", ephemeral=True)
+            return
+
+        unique_pool = list(set(pool))
+        count = min(target["winner_count"], len(unique_pool))
+        winner_ids = random.sample(unique_pool, count)
+        winner_mentions = " ".join(f"<@{wid}>" for wid in winner_ids)
+
+        await interaction.response.send_message(
+            f"🔄 **Reroll!** New winner{'s' if count > 1 else ''} for **{target['prize']}**: {winner_mentions} 🎉"
+        )
+    else:
+        await interaction.response.send_message(
+            "❌ No ended giveaway found to reroll.", ephemeral=True
+        )
 
 
-@bot.command(name="glist")
-@giveaway_host_only()
-async def glist_cmd(ctx):
-    """List all active giveaways."""
+@bot.tree.command(name="glist", description="List all currently active giveaways")
+@has_giveaway_host()
+async def glist_slash(interaction: discord.Interaction):
     if not active_giveaways:
-        await ctx.reply("📭 No active giveaways right now.")
+        await interaction.response.send_message("📭 No active giveaways right now.", ephemeral=True)
         return
 
     lines = []
@@ -523,37 +532,36 @@ async def glist_cmd(ctx):
         end = datetime.fromisoformat(g["end_time"])
         remaining = end - datetime.utcnow()
         lines.append(
-            f"• **{g['prize']}** — `{msg_id}` — ends in {format_timedelta(remaining)} — "
-            f"{len(g['entries'])} participant(s)"
+            f"• **{g['prize']}** — `{msg_id}`\n"
+            f"  ⏱️ {format_timedelta(remaining)} remaining — "
+            f"{len(g['entries'])} participant(s) — {g['winner_count']} winner(s)"
         )
 
     embed = discord.Embed(
         title=f"🎉 Active Giveaways ({len(active_giveaways)})",
-        description="\n".join(lines),
+        description="\n\n".join(lines),
         color=discord.Color.blue()
     )
-    await ctx.reply(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@bot.command(name="ghelp")
-async def ghelp_cmd(ctx):
-    """Show giveaway bot help."""
+@bot.tree.command(name="ghelp", description="Show all giveaway bot commands")
+async def ghelp_slash(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="🎉 Giveaway Bot — Help",
-        description="All commands require the **Giveaway Host** role.",
+        title="🎉 Giveaway Bot — Commands",
+        description="All commands below require the **Giveaway Host** role.",
         color=discord.Color.blurple()
     )
-    embed.add_field(name="`!giveaway`", value="Start a new giveaway (interactive setup)", inline=False)
-    embed.add_field(name="`!gend [id]`", value="End a giveaway early", inline=False)
-    embed.add_field(name="`!reroll [id]`", value="Reroll winners for a recent giveaway", inline=False)
-    embed.add_field(name="`!glist`", value="List all active giveaways", inline=False)
+    embed.add_field(name="`/giveaway`", value="Open a form to start a new giveaway", inline=False)
+    embed.add_field(name="`/gend [message_id]`", value="End a giveaway early", inline=False)
+    embed.add_field(name="`/reroll [message_id]`", value="Reroll winners for a recent giveaway", inline=False)
+    embed.add_field(name="`/glist`", value="List all currently active giveaways", inline=False)
     embed.add_field(
         name="📊 Dashboard",
-        value="Manage roles and view history at the web dashboard.",
+        value="Manage bonus entry roles and view history at the web dashboard.",
         inline=False
     )
-    await ctx.reply(embed=embed)
-
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ============================================================
 # FLASK DASHBOARD
@@ -572,7 +580,6 @@ def login_required(f):
 
 @app.route("/ping")
 def ping():
-    """UptimeRobot keep-alive endpoint."""
     return "pong", 200
 
 @app.route("/", methods=["GET"])
@@ -693,6 +700,7 @@ def active():
             "message_id": msg_id,
             "time_remaining": format_timedelta(remaining),
             "total_entries": total_entries,
+            "unique_participants": len(g["entries"]),
         })
     return render_template("active.html", giveaways=giveaways_list)
 
@@ -720,12 +728,10 @@ def run_flask():
 def main():
     if not BOT_TOKEN:
         print("❌ ERROR: DISCORD_BOT_TOKEN environment variable is not set.")
-        print("   Set it in your environment before starting the bot.")
         return
 
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-
     print(f"🌐 Flask dashboard starting on port {FLASK_PORT}...")
     bot.run(BOT_TOKEN)
 
