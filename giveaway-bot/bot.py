@@ -726,14 +726,20 @@ def run_flask():
     app.run(host="0.0.0.0", port=FLASK_PORT, debug=False, use_reloader=False)
 
 def main():
-    if not BOT_TOKEN:
-        print("❌ ERROR: DISCORD_BOT_TOKEN environment variable is not set.")
-        return
-
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    print(f"🌐 Flask dashboard starting on port {FLASK_PORT}...")
-    bot.run(BOT_TOKEN)
+    print(f"🌐 Flask dashboard running on port {FLASK_PORT}...")
+
+    if not BOT_TOKEN:
+        print("⚠️  DISCORD_BOT_TOKEN is not set — dashboard is running but Discord bot is offline.")
+        print("   Set DISCORD_BOT_TOKEN in your environment to connect the bot.")
+        # Keep Flask alive (daemon thread won't keep process running on its own)
+        import time
+        while True:
+            time.sleep(60)
+    else:
+        print("🤖 Starting Discord bot...")
+        bot.run(BOT_TOKEN)
 
 if __name__ == "__main__":
     main()
