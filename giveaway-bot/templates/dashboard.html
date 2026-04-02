@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Overview — Giveaway Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="mb-1 fw-bold">📊 Overview</h4>
+    <small class="text-muted">Welcome back, <strong>{{ session.username }}</strong></small>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card d-flex justify-content-between align-items-center">
+      <div>
+        <div class="stat-value text-success">{{ active_count }}</div>
+        <div class="stat-label">Active Giveaways</div>
+      </div>
+      <div class="stat-icon">📡</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card d-flex justify-content-between align-items-center">
+      <div>
+        <div class="stat-value" style="color:#ffa657;">{{ role_count }}</div>
+        <div class="stat-label">Bonus Entry Roles</div>
+      </div>
+      <div class="stat-icon">🎟️</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card d-flex justify-content-between align-items-center">
+      <div>
+        <div class="stat-value" style="color:#da70d6;">{{ history_count }}</div>
+        <div class="stat-label">Total Giveaways Run</div>
+      </div>
+      <div class="stat-icon">🏆</div>
+    </div>
+  </div>
+</div>
+
+{% if active_giveaways %}
+<div class="card-custom mb-4">
+  <div class="card-header px-4 py-3 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-broadcast text-success me-2"></i>Live Giveaways</span>
+    <a href="{{ url_for('active') }}" class="btn btn-sm btn-outline-success">View All</a>
+  </div>
+  <div class="px-4 py-3">
+    {% for msg_id, g in active_giveaways.items() %}
+    <div class="p-3 mb-2 rounded giveaway-live" style="background:#0d1117;">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <span class="fw-bold text-white">{{ g.prize }}</span>
+          <span class="badge bg-success ms-2">LIVE</span>
+        </div>
+        <small class="text-muted">{{ g.winner_count }} winner(s)</small>
+      </div>
+      <small class="text-muted">
+        Hosted by {{ g.host_name }} &bull; {{ g.entries | length }} participant(s) &bull;
+        <code>{{ msg_id }}</code>
+      </small>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if recent %}
+<div class="card-custom">
+  <div class="card-header px-4 py-3 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-clock-history me-2"></i>Recent Giveaways</span>
+    <a href="{{ url_for('history') }}" class="btn btn-sm btn-outline-secondary">Full History</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-dark table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Prize</th>
+          <th>Host</th>
+          <th>Winners</th>
+          <th>Participants</th>
+          <th>Ended At</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in recent %}
+        <tr>
+          <td class="fw-semibold">{{ g.prize }}</td>
+          <td class="text-muted">{{ g.host }}</td>
+          <td>
+            {% if g.winners %}
+              {% for w in g.winners %}
+                <span class="badge" style="background:#1a3a5f;color:#58a6ff;">{{ w }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="text-muted">No winners</span>
+            {% endif %}
+          </td>
+          <td>{{ g.unique_participants }}</td>
+          <td class="text-muted">{{ g.ended_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card-custom p-4 text-center text-muted">
+  <div style="font-size:2.5rem;">🎉</div>
+  <p class="mt-2 mb-0">No giveaways have been run yet. Start one in Discord with <code>!giveaway</code>.</p>
+</div>
+{% endif %}
+{% endblock %}

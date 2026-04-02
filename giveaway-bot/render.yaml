@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: discord-giveaway-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    plan: free
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: DASHBOARD_USERNAME
+        value: admin
+      - key: PORT
+        value: "10000"
+    healthCheckPath: /ping

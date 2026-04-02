@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Active Giveaways — Giveaway Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="mb-1 fw-bold">📡 Active Giveaways</h4>
+    <small class="text-muted">Currently running giveaways. Refreshes automatically.</small>
+  </div>
+  <button onclick="location.reload()" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+  </button>
+</div>
+
+{% if giveaways %}
+<div class="row g-3">
+  {% for g in giveaways %}
+  <div class="col-lg-6">
+    <div class="card-custom giveaway-live h-100">
+      <div class="card-header px-4 py-3 d-flex justify-content-between align-items-center">
+        <span class="fw-bold text-white">🎉 {{ g.prize }}</span>
+        <span class="badge bg-success">LIVE</span>
+      </div>
+      <div class="p-4">
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <div class="text-muted small">Host</div>
+            <div class="fw-semibold">{{ g.host_name }}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Channel</div>
+            <div class="fw-semibold">#{{ g.channel_name }}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Winners</div>
+            <div class="fw-semibold">{{ g.winner_count }}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Time Remaining</div>
+            <div class="fw-semibold text-success">{{ g.time_remaining }}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Participants</div>
+            <div class="fw-semibold">{{ g.unique_participants }}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Total Entries</div>
+            <div class="fw-semibold">{{ g.total_entries }}</div>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <div class="text-muted small mb-1">Message ID</div>
+          <code class="text-info">{{ g.message_id }}</code>
+        </div>
+
+        {% if g.entries %}
+        <div>
+          <div class="text-muted small mb-2">Participants</div>
+          <div style="max-height:120px;overflow-y:auto;">
+            {% for uid, data in g.entries.items() %}
+            <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary">
+              <span class="text-white small">{{ data.username }}</span>
+              <span class="badge badge-entries">{{ data.entries }}x</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card-custom p-5 text-center text-muted">
+  <div style="font-size:3rem;">📭</div>
+  <h5 class="mt-3">No Active Giveaways</h5>
+  <p class="mb-0">Start one in Discord with <code>!giveaway</code></p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  setTimeout(() => location.reload(), 30000);
+</script>
+{% endblock %}

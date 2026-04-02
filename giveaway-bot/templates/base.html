@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Giveaway Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <style>
+    body { background-color: #0d0f13; color: #e2e5ef; font-family: 'Segoe UI', system-ui, sans-serif; }
+    .sidebar { width: 250px; min-height: 100vh; background: #161b22; border-right: 1px solid #30363d; }
+    .sidebar .nav-link { color: #8b949e; padding: 10px 20px; border-radius: 6px; margin: 2px 8px; transition: all 0.15s; }
+    .sidebar .nav-link:hover, .sidebar .nav-link.active { background: #1f2937; color: #58a6ff; }
+    .sidebar .nav-link i { margin-right: 8px; width: 16px; }
+    .brand { padding: 20px; border-bottom: 1px solid #30363d; }
+    .brand h5 { color: #f0f6fc; margin: 0; font-weight: 700; }
+    .brand small { color: #8b949e; }
+    .main-content { flex: 1; padding: 24px; }
+    .stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; }
+    .stat-card .stat-value { font-size: 2rem; font-weight: 700; color: #58a6ff; }
+    .stat-card .stat-label { color: #8b949e; font-size: 0.85rem; margin-top: 4px; }
+    .stat-card .stat-icon { font-size: 2rem; opacity: 0.3; }
+    .card-custom { background: #161b22; border: 1px solid #30363d; border-radius: 12px; }
+    .card-custom .card-header { background: transparent; border-bottom: 1px solid #30363d; font-weight: 600; }
+    .table-dark { --bs-table-bg: transparent; }
+    .table { --bs-table-striped-bg: rgba(255,255,255,0.03); }
+    .badge-entries { background: #1f3a5f; color: #58a6ff; border: 1px solid #1a4a8a; }
+    .btn-discord { background: #5865f2; border-color: #5865f2; color: white; }
+    .btn-discord:hover { background: #4752c4; color: white; }
+    .giveaway-live { border-left: 3px solid #3fb950; }
+    .alert-custom { border-radius: 8px; }
+  </style>
+</head>
+<body>
+<div class="d-flex">
+  <nav class="sidebar d-flex flex-column">
+    <div class="brand">
+      <h5>🎉 Giveaway Bot</h5>
+      <small>Dashboard v1.0</small>
+    </div>
+    <ul class="nav flex-column mt-3 flex-grow-1">
+      <li class="nav-item">
+        <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+          <i class="bi bi-speedometer2"></i> Overview
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('active') }}" class="nav-link {% if request.endpoint == 'active' %}active{% endif %}">
+          <i class="bi bi-broadcast"></i> Active Giveaways
+          {% if active_count is defined and active_count > 0 %}
+          <span class="badge bg-success ms-1">{{ active_count }}</span>
+          {% endif %}
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('roles') }}" class="nav-link {% if request.endpoint in ['roles','add_role','edit_role'] %}active{% endif %}">
+          <i class="bi bi-people-fill"></i> Bonus Entry Roles
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('history') }}" class="nav-link {% if request.endpoint == 'history' %}active{% endif %}">
+          <i class="bi bi-clock-history"></i> Giveaway History
+        </a>
+      </li>
+    </ul>
+    <div class="p-3 border-top border-secondary">
+      <small class="text-muted d-block mb-2">Logged in as <strong>{{ session.username }}</strong></small>
+      <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-danger w-100">
+        <i class="bi bi-box-arrow-right"></i> Logout
+      </a>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show alert-custom mb-3" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

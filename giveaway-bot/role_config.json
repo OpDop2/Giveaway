@@ -1,0 +1,10 @@
+{
+  "VIP": {
+    "entries": 3,
+    "description": "VIP members get 3x entries"
+  },
+  "Server Booster": {
+    "entries": 2,
+    "description": "Server boosters get 2x entries"
+  }
+}
