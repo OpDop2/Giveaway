@@ -24,3 +24,8 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+DISCORD_BOT_TOKEN = "MTQzMDQ4MjE3MzMxOTgzOTc4Nw.GWtUgc.KHaKRsP58lIsAFpM6ORLZNCLfWE1jy3SxlFmxQ"
