@@ -241,6 +241,13 @@ class GiveawayModal(discord.ui.Modal, title="🎉 Create a Giveaway"):
         min_length=1,
         max_length=3,
     )
+    invite_bonus = discord.ui.TextInput(
+        label="Enable Invite Bonus? (yes / no)",
+        placeholder="yes = each invite during this giveaway earns +1 entry",
+        default="no",
+        min_length=2,
+        max_length=3,
+    )
 
     async def on_submit(self, interaction: discord.Interaction):
         duration_secs = parse_duration(self.duration.value)
@@ -262,6 +269,23 @@ class GiveawayModal(discord.ui.Modal, title="🎉 Create a Giveaway"):
             )
             return
 
+        invite_bonus_enabled = self.invite_bonus.value.strip().lower() in ("yes", "y", "true", "1")
+
+        # Snapshot current invite uses so we only count NEW invites from this point
+        invite_snapshot = {}
+        if invite_bonus_enabled:
+            try:
+                guild_invites = await interaction.guild.invites()
+                invite_snapshot = {
+                    inv.code: {
+                        "uses": inv.uses,
+                        "inviter_id": str(inv.inviter.id) if inv.inviter else None,
+                    }
+                    for inv in guild_invites
+                }
+            except Exception:
+                invite_snapshot = {}
+
         end_time = datetime.utcnow() + timedelta(seconds=duration_secs)
         giveaway_data = {
             "prize": self.prize.value.strip(),
@@ -280,6 +304,9 @@ class GiveawayModal(discord.ui.Modal, title="🎉 Create a Giveaway"):
             "ended": False,
             "message_id": "",
             "started_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+            "invite_bonus_enabled": invite_bonus_enabled,
+            "invite_snapshot": invite_snapshot,
+            "invite_credits": {},   # user_id -> number of invites during this giveaway
         }
 
         embed = build_embed(giveaway_data)
