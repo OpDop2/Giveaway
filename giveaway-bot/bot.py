@@ -88,6 +88,7 @@ ended_giveaways = {}    # message_id (str) -> giveaway dict (kept for reroll)
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.invites = True
 bot = commands.Bot(command_prefix="~", intents=intents)
 
 # ============================================================
@@ -164,6 +165,19 @@ def build_embed(giveaway, ended=False):
     if bonus_lines:
         embed.add_field(name="🎟️ Bonus Entry Roles", value="\n".join(bonus_lines), inline=False)
 
+    if giveaway.get("invite_bonus_enabled"):
+        embed.add_field(
+            name="📨 Invite Bonus",
+            value="**ON** — Every invite = +1 ticket",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="📨 Invite Bonus",
+            value="**OFF**",
+            inline=False
+        )
+
     return embed
 
 # ============================================================
@@ -194,18 +208,23 @@ class GiveawayView(discord.ui.View):
             return
 
         member = interaction.guild.get_member(interaction.user.id)
-        entries = get_user_entries(member) if member else 1
+        base_entries = get_user_entries(member) if member else 1
+        invite_credits = giveaway.get("invite_credits", {}).get(user_id, 0)
+        total_entries = base_entries + invite_credits
 
         giveaway["entries"][user_id] = {
             "username": str(interaction.user),
             "display_name": interaction.user.display_name,
-            "entries": entries,
+            "base_entries": base_entries,
+            "invite_credits": invite_credits,
+            "entries": total_entries,
         }
         save_active_giveaways()
 
+        bonus_note = f" (+{invite_credits} invite{'s' if invite_credits != 1 else ''})" if invite_credits else ""
         await interaction.response.send_message(
             f"✅ You've entered the giveaway for **{giveaway['prize']}** with "
-            f"**{entries} {'entry' if entries == 1 else 'entries'}**!",
+            f"**{total_entries} {'entry' if total_entries == 1 else 'entries'}**{bonus_note}!",
             ephemeral=True
         )
 
@@ -347,9 +366,18 @@ async def end_giveaway(message_id: str, early: bool = False):
     giveaway["ended"] = True
     save_active_giveaways()
 
+    # Recalculate entries at winner-pick time so invite credits are fully up-to-date
+    invite_credits = giveaway.get("invite_credits", {})
+    for uid, data in giveaway["entries"].items():
+        base = data.get("base_entries", data.get("entries", 1))
+        credits = invite_credits.get(uid, 0)
+        data["base_entries"] = base
+        data["invite_credits"] = credits
+        data["entries"] = base + credits
+
     pool = []
     for uid, data in giveaway["entries"].items():
-        pool.extend([uid] * data.get("entries", 1))
+        pool.extend([uid] * max(data.get("entries", 1), 1))
 
     winner_ids = []
     winner_names = []
@@ -465,6 +493,122 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
             await interaction.response.send_message(
                 f"❌ An error occurred: {error}", ephemeral=True
             )
+
+# ============================================================
+# INVITE TRACKING EVENTS
+# ============================================================
+
+@bot.event
+async def on_invite_create(invite: discord.Invite):
+    """When a new invite is created, add it to every active giveaway snapshot so it's tracked."""
+    guild_id = str(invite.guild.id) if invite.guild else None
+    for giveaway in active_giveaways.values():
+        if giveaway.get("guild_id") != guild_id:
+            continue
+        if not giveaway.get("invite_bonus_enabled"):
+            continue
+        snapshot = giveaway.setdefault("invite_snapshot", {})
+        snapshot[invite.code] = {
+            "uses": invite.uses or 0,
+            "inviter_id": str(invite.inviter.id) if invite.inviter else None,
+        }
+    save_active_giveaways()
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    """When a member joins, figure out who invited them and credit that person +1 in each active
+    invite-bonus giveaway in this guild."""
+    guild = member.guild
+    guild_id = str(guild.id)
+
+    # Only bother if there's at least one active invite-bonus giveaway here
+    relevant = [
+        (mid, g) for mid, g in active_giveaways.items()
+        if g.get("guild_id") == guild_id and g.get("invite_bonus_enabled")
+    ]
+    if not relevant:
+        return
+
+    try:
+        current_invites = {inv.code: inv for inv in await guild.invites()}
+    except Exception:
+        return
+
+    for msg_id, giveaway in relevant:
+        snapshot = giveaway.setdefault("invite_snapshot", {})
+        invite_joins = giveaway.setdefault("invite_joins", {})   # member_id -> inviter_id
+        invite_credits = giveaway.setdefault("invite_credits", {})
+
+        inviter_id = None
+        used_code = None
+
+        for code, inv in current_invites.items():
+            prev_uses = snapshot.get(code, {}).get("uses", 0) if isinstance(snapshot.get(code), dict) else snapshot.get(code, 0)
+            if inv.uses > prev_uses:
+                inviter_id = str(inv.inviter.id) if inv.inviter else None
+                used_code = code
+                break
+
+        # Update snapshot with latest uses
+        for code, inv in current_invites.items():
+            if code in snapshot and isinstance(snapshot[code], dict):
+                snapshot[code]["uses"] = inv.uses
+            else:
+                snapshot[code] = {
+                    "uses": inv.uses,
+                    "inviter_id": str(inv.inviter.id) if inv.inviter else None,
+                }
+
+        if inviter_id:
+            invite_joins[str(member.id)] = inviter_id
+            invite_credits[inviter_id] = invite_credits.get(inviter_id, 0) + 1
+
+            # If inviter is already in the giveaway, update their live entry count
+            if inviter_id in giveaway["entries"]:
+                entry = giveaway["entries"][inviter_id]
+                entry["invite_credits"] = invite_credits[inviter_id]
+                entry["entries"] = entry.get("base_entries", entry.get("entries", 1)) + invite_credits[inviter_id]
+
+    save_active_giveaways()
+
+
+@bot.event
+async def on_member_remove(member: discord.Member):
+    """When an invited member leaves, remove their invite credit from the inviter."""
+    guild_id = str(member.guild.id)
+    member_id = str(member.id)
+
+    relevant = [
+        (mid, g) for mid, g in active_giveaways.items()
+        if g.get("guild_id") == guild_id and g.get("invite_bonus_enabled")
+    ]
+    if not relevant:
+        return
+
+    changed = False
+    for msg_id, giveaway in relevant:
+        invite_joins = giveaway.get("invite_joins", {})
+        invite_credits = giveaway.get("invite_credits", {})
+
+        inviter_id = invite_joins.pop(member_id, None)
+        if not inviter_id:
+            continue
+
+        # Deduct one credit from the inviter (minimum 0)
+        current = invite_credits.get(inviter_id, 0)
+        invite_credits[inviter_id] = max(current - 1, 0)
+
+        # If inviter is in the giveaway, update their live entry count
+        if inviter_id in giveaway["entries"]:
+            entry = giveaway["entries"][inviter_id]
+            entry["invite_credits"] = invite_credits[inviter_id]
+            entry["entries"] = entry.get("base_entries", entry.get("entries", 1)) + invite_credits[inviter_id]
+
+        changed = True
+
+    if changed:
+        save_active_giveaways()
 
 # ============================================================
 # SLASH COMMANDS
