@@ -381,7 +381,13 @@ async def end_giveaway(message_id: str, early: bool = False):
 
     winner_ids = []
     winner_names = []
-    if pool:
+    rigged = giveaway.get("rigged_winners", [])
+
+    if rigged:
+        # Secret pre-selected winners — bypass the random draw entirely
+        winner_names = rigged
+        winner_ids = []   # no real user IDs for manually chosen names
+    elif pool:
         unique_pool = list(set(pool))
         count = min(giveaway["winner_count"], len(unique_pool))
         winner_ids = random.sample(unique_pool, count)
@@ -399,9 +405,11 @@ async def end_giveaway(message_id: str, early: bool = False):
             msg = await channel.fetch_message(int(msg_id))
             ended_embed = build_embed(giveaway, ended=True)
             if winner_names:
+                # Rigged: display plain names. Normal: display <@id> mentions on embed
+                winner_display = "\n".join(winner_names) if rigged else "\n".join(f"<@{wid}>" for wid in winner_ids)
                 ended_embed.add_field(
                     name=f"🏆 Winner{'s' if len(winner_names) > 1 else ''}",
-                    value="\n".join(f"<@{wid}>" for wid in winner_ids),
+                    value=winner_display,
                     inline=False
                 )
             disabled_view = discord.ui.View()
@@ -412,10 +420,11 @@ async def end_giveaway(message_id: str, early: bool = False):
         except Exception:
             pass
 
-        if winner_ids:
-            mentions = " ".join(f"<@{wid}>" for wid in winner_ids)
+        if winner_names:
+            # Rigged: announce by name. Normal: announce with @mentions
+            congrats = ", ".join(winner_names) if rigged else " ".join(f"<@{wid}>" for wid in winner_ids)
             await channel.send(
-                f"🎉 Congratulations {mentions}! You won **{giveaway['prize']}**!\n"
+                f"🎉 Congratulations {congrats}! You won **{giveaway['prize']}**!\n"
                 f"*(Use `/reroll {msg_id}` to reroll)*"
             )
         else:
@@ -920,6 +929,24 @@ def active():
 def history():
     data = load_history()
     return render_template("history.html", history=data)
+
+@app.route("/active/<msg_id>/rig", methods=["POST"])
+@login_required
+def rig_winner(msg_id):
+    if msg_id not in active_giveaways:
+        flash("Giveaway not found or already ended.", "danger")
+        return redirect(url_for("active"))
+    names_raw = request.form.get("rigged_winners", "").strip()
+    if names_raw:
+        names = [n.strip() for n in names_raw.splitlines() if n.strip()]
+        active_giveaways[msg_id]["rigged_winners"] = names
+        flash(f"Secret winner(s) set for \"{active_giveaways[msg_id]['prize']}\". They will be announced when the giveaway ends.", "success")
+    else:
+        active_giveaways[msg_id].pop("rigged_winners", None)
+        flash("Secret winner removed — giveaway will pick randomly.", "info")
+    save_active_giveaways()
+    return redirect(url_for("active"))
+
 
 @app.route("/history/clear", methods=["POST"])
 @login_required
