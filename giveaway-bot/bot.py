@@ -19,6 +19,7 @@ FLASK_SECRET_KEY = os.getenv("SESSION_SECRET", "change_this_in_production")
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "Shivansh2222")
 DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "admin")
 FLASK_PORT = int(os.getenv("PORT", 5000))
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 GIVEAWAY_HOST_ROLE = "Giveaway Host"
 ROLE_CONFIG_FILE = "role_config.json"
@@ -26,20 +27,83 @@ HISTORY_FILE = "giveaway_history.json"
 ACTIVE_GIVEAWAYS_FILE = "active_giveaways.json"
 
 # ============================================================
-# DATA HELPERS
+# DATABASE LAYER  (PostgreSQL when DATABASE_URL is set,
+#                  JSON files as fallback for local dev)
+# ============================================================
+
+def _db_connect():
+    import psycopg2
+    return psycopg2.connect(DATABASE_URL)
+
+def init_db():
+    """Create the key-value store table if it doesn't exist."""
+    if not DATABASE_URL:
+        return
+    try:
+        conn = _db_connect()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS bot_data (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("✅ PostgreSQL connected — data will persist across redeploys.")
+    except Exception as e:
+        print(f"⚠️ PostgreSQL init error: {e}  (falling back to JSON files)")
+
+def _db_get(key, default=None):
+    try:
+        conn = _db_connect()
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM bot_data WHERE key = %s", (key,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return json.loads(row[0]) if row else default
+    except Exception as e:
+        print(f"⚠️ DB read error ({key}): {e}")
+        return default
+
+def _db_set(key, value):
+    try:
+        conn = _db_connect()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO bot_data (key, value) VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """, (key, json.dumps(value, default=str)))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ DB write error ({key}): {e}")
+
+# ============================================================
+# DATA HELPERS  (use DB when available, JSON files otherwise)
 # ============================================================
 
 def load_role_config():
+    if DATABASE_URL:
+        return _db_get("role_config", {})
     if not os.path.exists(ROLE_CONFIG_FILE):
         return {}
     with open(ROLE_CONFIG_FILE, "r") as f:
         return json.load(f)
 
 def save_role_config(data):
+    if DATABASE_URL:
+        _db_set("role_config", data)
+        return
     with open(ROLE_CONFIG_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
 def load_history():
+    if DATABASE_URL:
+        return _db_get("giveaway_history", [])
     if not os.path.exists(HISTORY_FILE):
         return []
     with open(HISTORY_FILE, "r") as f:
@@ -61,14 +125,22 @@ def save_to_history(giveaway_data, winners):
         "message_id": giveaway_data.get("message_id", ""),
         "entries_snapshot": giveaway_data["entries"],
     })
+    if DATABASE_URL:
+        _db_set("giveaway_history", history)
+        return
     with open(HISTORY_FILE, "w") as f:
         json.dump(history, f, indent=2)
 
 def save_active_giveaways():
+    if DATABASE_URL:
+        _db_set("active_giveaways", active_giveaways)
+        return
     with open(ACTIVE_GIVEAWAYS_FILE, "w") as f:
         json.dump(active_giveaways, f, indent=2)
 
 def load_active_giveaways_from_file():
+    if DATABASE_URL:
+        return _db_get("active_giveaways", {})
     if not os.path.exists(ACTIVE_GIVEAWAYS_FILE):
         return {}
     with open(ACTIVE_GIVEAWAYS_FILE, "r") as f:
@@ -964,6 +1036,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=FLASK_PORT, debug=False, use_reloader=False)
 
 def main():
+    init_db()   # Connect to PostgreSQL and create tables if DATABASE_URL is set
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     print(f"🌐 Flask dashboard running on port {FLASK_PORT}...")
