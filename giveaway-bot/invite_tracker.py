@@ -236,10 +236,10 @@ def _stats_embed(rec: dict, member: discord.Member) -> discord.Embed:
 
 
 def _progress_embed(rec: dict, member: discord.Member) -> discord.Embed:
-    total = rec.get("invites", 0) or 0
-    left  = rec.get("left",    0) or 0
-    fake  = rec.get("fake",    0) or 0
-    net   = max(0, total - left - fake)
+    total  = rec.get("invites", 0) or 0
+    left   = rec.get("left",    0) or 0
+    fake   = rec.get("fake",    0) or 0
+    net    = max(0, total - left - fake)
     next_m = _next_milestone(net)
 
     embed = discord.Embed(
