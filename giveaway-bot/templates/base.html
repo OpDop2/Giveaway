@@ -62,6 +62,11 @@
           <i class="bi bi-clock-history"></i> Giveaway History
         </a>
       </li>
+      <li class="nav-item">
+        <a href="{{ url_for('settings') }}" class="nav-link {% if request.endpoint in ['settings','save_settings'] %}active{% endif %}">
+          <i class="bi bi-gear-fill"></i> Settings
+        </a>
+      </li>
     </ul>
     <div class="p-3 border-top border-secondary">
       <small class="text-muted d-block mb-2">Logged in as <strong>{{ session.username }}</strong></small>

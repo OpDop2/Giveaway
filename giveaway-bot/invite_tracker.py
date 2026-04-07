@@ -24,9 +24,34 @@ Environment variables used (Railway):
 """
 
 import os
+import json
 import discord
 from discord import app_commands
 from datetime import datetime
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Invite config  (saved to disk, editable from the web dashboard)
+# ─────────────────────────────────────────────────────────────────────────────
+
+INVITE_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "invite_config.json")
+
+def load_invite_config() -> dict:
+    """Load dashboard-saved invite settings. Returns empty dict if file missing."""
+    try:
+        if os.path.exists(INVITE_CONFIG_FILE):
+            with open(INVITE_CONFIG_FILE, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"⚠️  invite_config.json read error: {e}")
+    return {}
+
+def save_invite_config(data: dict):
+    """Persist invite settings to disk."""
+    try:
+        with open(INVITE_CONFIG_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"⚠️  invite_config.json write error: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Supabase client
@@ -130,9 +155,15 @@ def _increment(user_id: str, **deltas: int) -> dict:
 async def _log(bot: discord.Client, action: str, staff: discord.Member,
                target: discord.Member, detail: str):
     print(f"[INVITE LOG] {action} | Staff: {staff} ({staff.id}) | Target: {target} ({target.id}) | {detail}")
-    if not LOG_CHANNEL_ID:
+    # Prefer dashboard-saved channel ID, fall back to env var
+    cfg = load_invite_config()
+    raw_id = cfg.get("log_channel_id", "").strip() or str(LOG_CHANNEL_ID or "")
+    if not raw_id:
         return
-    ch = bot.get_channel(LOG_CHANNEL_ID)
+    try:
+        ch = bot.get_channel(int(raw_id))
+    except ValueError:
+        return
     if not ch:
         return
     embed = discord.Embed(
@@ -155,6 +186,15 @@ async def _log(bot: discord.Client, action: str, staff: discord.Member,
 def _is_staff(member: discord.Member) -> bool:
     if member.guild_permissions.administrator:
         return True
+    cfg = load_invite_config()
+    # Check by Role ID saved from dashboard (takes priority)
+    saved_role_id = cfg.get("staff_role_id", "").strip()
+    if saved_role_id:
+        try:
+            return any(r.id == int(saved_role_id) for r in member.roles)
+        except ValueError:
+            pass
+    # Fall back to role name env var
     return any(r.name == STAFF_ROLE_NAME for r in member.roles)
 
 # ─────────────────────────────────────────────────────────────────────────────

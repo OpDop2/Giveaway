@@ -1032,6 +1032,39 @@ def rig_winner(msg_id):
     return redirect(url_for("active"))
 
 
+@app.route("/settings", methods=["GET"])
+@login_required
+def settings():
+    from invite_tracker import load_invite_config
+    cfg = load_invite_config()
+    return render_template("settings.html", cfg=cfg)
+
+@app.route("/settings/save", methods=["POST"])
+@login_required
+def save_settings():
+    from invite_tracker import load_invite_config, save_invite_config
+    cfg = load_invite_config()
+    staff_role_id   = request.form.get("staff_role_id", "").strip()
+    log_channel_id  = request.form.get("log_channel_id", "").strip()
+    fake_minutes    = request.form.get("fake_threshold_minutes", "").strip()
+
+    if staff_role_id and not staff_role_id.isdigit():
+        flash("Staff Role ID must be a numeric Discord ID.", "danger")
+        return redirect(url_for("settings"))
+    if log_channel_id and not log_channel_id.isdigit():
+        flash("Log Channel ID must be a numeric Discord ID.", "danger")
+        return redirect(url_for("settings"))
+    if fake_minutes and not fake_minutes.isdigit():
+        flash("Fake invite threshold must be a whole number.", "danger")
+        return redirect(url_for("settings"))
+
+    cfg["staff_role_id"]          = staff_role_id
+    cfg["log_channel_id"]         = log_channel_id
+    cfg["fake_threshold_minutes"] = int(fake_minutes) if fake_minutes else 10
+    save_invite_config(cfg)
+    flash("Settings saved successfully.", "success")
+    return redirect(url_for("settings"))
+
 @app.route("/history/clear", methods=["POST"])
 @login_required
 def clear_history():

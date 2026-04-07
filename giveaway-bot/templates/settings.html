@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Settings — Giveaway Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="mb-1 fw-bold">⚙️ Settings</h4>
+    <small class="text-muted">Configure invite tracking and staff permissions.</small>
+  </div>
+</div>
+
+<form method="POST" action="{{ url_for('save_settings') }}">
+
+  <!-- ── Staff Role ─────────────────────────────────────────── -->
+  <div class="card-custom mb-4">
+    <div class="card-header px-4 py-3">
+      <i class="bi bi-shield-lock-fill text-warning me-2"></i>
+      Staff Role for Invite Commands
+    </div>
+    <div class="p-4">
+      <p class="text-muted small mb-3">
+        Users with this Discord role can use <code>/addinvites</code>, <code>/removeinvites</code>,
+        <code>/setinvites</code>, and <code>/resetinvites</code>. Server administrators can always use these commands.
+      </p>
+      <div class="mb-3">
+        <label class="form-label text-muted small">Staff Role ID</label>
+        <input
+          type="text"
+          name="staff_role_id"
+          class="form-control"
+          placeholder="e.g. 1234567890123456789"
+          value="{{ cfg.get('staff_role_id', '') }}"
+          style="background:#0d1117; color:#e2e5ef; border-color:#30363d; max-width:380px;"
+        />
+        <div class="form-text text-muted mt-2">
+          <i class="bi bi-info-circle me-1"></i>
+          To get a Role ID in Discord: <strong>Server Settings → Roles → right-click role → Copy Role ID</strong>
+          (you need Developer Mode on in Discord settings).
+        </div>
+      </div>
+      {% if cfg.get('staff_role_id') %}
+      <div class="d-inline-flex align-items-center gap-2 px-3 py-2 rounded"
+           style="background:#1a2a1a; border:1px solid #2ea043;">
+        <span class="text-success"><i class="bi bi-check-circle-fill"></i></span>
+        <span class="small text-success">Active — Role ID: <code class="text-success">{{ cfg.staff_role_id }}</code></span>
+      </div>
+      {% else %}
+      <div class="d-inline-flex align-items-center gap-2 px-3 py-2 rounded"
+           style="background:#1a1a0a; border:1px solid #9e6a03;">
+        <span class="text-warning"><i class="bi bi-exclamation-triangle-fill"></i></span>
+        <span class="small text-warning">Not set — falling back to env var <code class="text-warning">STAFF_ROLE_NAME</code></span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Invite Log Channel ─────────────────────────────────── -->
+  <div class="card-custom mb-4">
+    <div class="card-header px-4 py-3">
+      <i class="bi bi-journal-text text-info me-2"></i>
+      Staff Action Log Channel
+    </div>
+    <div class="p-4">
+      <p class="text-muted small mb-3">
+        When staff use invite commands, an embed is posted to this channel showing who did what and why.
+        Leave blank to disable channel logging (actions are still printed in bot logs).
+      </p>
+      <div class="mb-3">
+        <label class="form-label text-muted small">Log Channel ID</label>
+        <input
+          type="text"
+          name="log_channel_id"
+          class="form-control"
+          placeholder="e.g. 1234567890123456789"
+          value="{{ cfg.get('log_channel_id', '') }}"
+          style="background:#0d1117; color:#e2e5ef; border-color:#30363d; max-width:380px;"
+        />
+        <div class="form-text text-muted mt-2">
+          <i class="bi bi-info-circle me-1"></i>
+          Right-click any channel in Discord and choose <strong>Copy Channel ID</strong> (requires Developer Mode).
+        </div>
+      </div>
+      {% if cfg.get('log_channel_id') %}
+      <div class="d-inline-flex align-items-center gap-2 px-3 py-2 rounded"
+           style="background:#1a2a1a; border:1px solid #2ea043;">
+        <span class="text-success"><i class="bi bi-check-circle-fill"></i></span>
+        <span class="small text-success">Active — Channel ID: <code class="text-success">{{ cfg.log_channel_id }}</code></span>
+      </div>
+      {% else %}
+      <div class="d-inline-flex align-items-center gap-2 px-3 py-2 rounded"
+           style="background:#161b22; border:1px solid #30363d;">
+        <span class="text-muted"><i class="bi bi-dash-circle"></i></span>
+        <span class="small text-muted">Disabled — logs go to console only</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Anti-Abuse Threshold ───────────────────────────────── -->
+  <div class="card-custom mb-4">
+    <div class="card-header px-4 py-3">
+      <i class="bi bi-shield-exclamation text-danger me-2"></i>
+      Fake Invite Detection
+    </div>
+    <div class="p-4">
+      <p class="text-muted small mb-3">
+        If a member leaves within this many minutes of joining, the invite is counted as
+        <strong>fake</strong> instead of <strong>left</strong>. Fake invites reduce net invites
+        just like leaves do, but are tracked separately so you can spot abuse patterns.
+      </p>
+      <div class="mb-0">
+        <label class="form-label text-muted small">Threshold (minutes)</label>
+        <div class="d-flex align-items-center gap-3">
+          <input
+            type="number"
+            name="fake_threshold_minutes"
+            class="form-control"
+            min="1"
+            max="10080"
+            value="{{ cfg.get('fake_threshold_minutes', 10) }}"
+            style="background:#0d1117; color:#e2e5ef; border-color:#30363d; max-width:140px;"
+          />
+          <span class="text-muted small">minutes (default: 10)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Save button ────────────────────────────────────────── -->
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-success px-4">
+      <i class="bi bi-floppy-fill me-2"></i>Save Settings
+    </button>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary px-4">Cancel</a>
+  </div>
+
+</form>
+{% endblock %}
