@@ -6,7 +6,7 @@ import random
 import json
 import os
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import functools
 
@@ -211,7 +211,8 @@ def build_embed(giveaway, ended=False):
         color = discord.Color.red()
         title = f"🎉 GIVEAWAY ENDED: {giveaway['prize']}"
     else:
-        time_str = format_timedelta(remaining)
+        end_time_aware = end_time.replace(tzinfo=timezone.utc)
+        time_str = discord.utils.format_dt(end_time_aware, style='R')
         color = discord.Color.gold()
         title = f"🎉 GIVEAWAY: {giveaway['prize']}"
 
@@ -263,9 +264,10 @@ class GiveawayView(discord.ui.View):
 
     @discord.ui.button(label="🎉 JOIN", style=discord.ButtonStyle.success, custom_id="giveaway_join")
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         msg_id = self.message_id
         if msg_id not in active_giveaways:
-            await interaction.response.send_message("This giveaway has ended!", ephemeral=True)
+            await interaction.followup.send("This giveaway has ended!", ephemeral=True)
             return
 
         giveaway = active_giveaways[msg_id]
@@ -273,7 +275,7 @@ class GiveawayView(discord.ui.View):
 
         if user_id in giveaway["entries"]:
             entries = giveaway["entries"][user_id]["entries"]
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"You're already entered with **{entries} {'entry' if entries == 1 else 'entries'}**!",
                 ephemeral=True
             )
@@ -294,7 +296,7 @@ class GiveawayView(discord.ui.View):
         save_active_giveaways()
 
         bonus_note = f" (+{invite_credits} invite{'s' if invite_credits != 1 else ''})" if invite_credits else ""
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"✅ You've entered the giveaway for **{giveaway['prize']}** with "
             f"**{total_entries} {'entry' if total_entries == 1 else 'entries'}**{bonus_note}!",
             ephemeral=True
@@ -548,8 +550,9 @@ async def on_ready():
             active_giveaways[msg_id] = giveaway
             await end_giveaway(msg_id)
         else:
-            # Still running — restore and reschedule timer
+            # Still running — restore, re-register persistent view, and reschedule timer
             active_giveaways[msg_id] = giveaway
+            bot.add_view(GiveawayView(msg_id))
             print(f"♻️  Restored giveaway '{giveaway['prize']}' — {int(remaining)}s remaining")
 
             async def resume_timer(mid=msg_id, secs=remaining):
@@ -690,6 +693,15 @@ async def on_member_remove(member: discord.Member):
 
     if changed:
         save_active_giveaways()
+
+
+@bot.event
+async def on_raw_message_delete(payload: discord.RawMessageDeleteEvent):
+    """If a giveaway message is deleted from Discord, auto-end and clean up the giveaway."""
+    msg_id = str(payload.message_id)
+    if msg_id in active_giveaways:
+        print(f"🗑️ Giveaway message {msg_id} was deleted — ending giveaway automatically.")
+        await end_giveaway(msg_id)
 
 # ============================================================
 # SLASH COMMANDS
