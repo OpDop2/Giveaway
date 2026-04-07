@@ -1064,5 +1064,9 @@ def main():
         print("🤖 Starting Discord bot...")
         bot.run(BOT_TOKEN)
 
+# ── Invite Tracker ────────────────────────────────────────────────────────────
+import invite_tracker as _inv_tracker
+_inv_tracker.setup(bot)
+
 if __name__ == "__main__":
     main()
