@@ -533,6 +533,66 @@ def setup(bot):
         )
         await _log(bot, "removeinvites", interaction.user, user, detail)
 
+    # ── /addfake user amount [reason] ─────────────────────────────────────────
+    @bot.tree.command(name="addfake", description="Add fake invites to a user [Staff only]")
+    @app_commands.describe(user="Target user", amount="Number of fake invites to add", reason="Reason (optional)")
+    async def cmd_addfake(
+        interaction: discord.Interaction,
+        user: discord.Member,
+        amount: int,
+        reason: str = None,
+    ):
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("❌ You need the Staff role for this command.", ephemeral=True)
+            return
+        if amount <= 0:
+            await interaction.response.send_message("❌ Amount must be a positive number.", ephemeral=True)
+            return
+        if not supabase:
+            await interaction.response.send_message("❌ Invite tracking not configured.", ephemeral=True)
+            return
+
+        updated = _increment(str(user.id), fake=amount)
+        net = max(0, (updated.get("invites") or 0) - (updated.get("left") or 0) - (updated.get("fake") or 0))
+        detail = f"+{amount} fake invites" + (f" | Reason: {reason}" if reason else "")
+
+        await interaction.response.send_message(
+            f"✅ Added **{amount}** fake invite(s) to {user.mention}. "
+            f"New net: **{net}**",
+            ephemeral=True,
+        )
+        await _log(bot, "addfake", interaction.user, user, detail)
+
+    # ── /addleft user amount [reason] ─────────────────────────────────────────
+    @bot.tree.command(name="addleft", description="Add left count to a user [Staff only]")
+    @app_commands.describe(user="Target user", amount="Number of leaves to add", reason="Reason (optional)")
+    async def cmd_addleft(
+        interaction: discord.Interaction,
+        user: discord.Member,
+        amount: int,
+        reason: str = None,
+    ):
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("❌ You need the Staff role for this command.", ephemeral=True)
+            return
+        if amount <= 0:
+            await interaction.response.send_message("❌ Amount must be a positive number.", ephemeral=True)
+            return
+        if not supabase:
+            await interaction.response.send_message("❌ Invite tracking not configured.", ephemeral=True)
+            return
+
+        updated = _increment(str(user.id), left=amount)
+        net = max(0, (updated.get("invites") or 0) - (updated.get("left") or 0) - (updated.get("fake") or 0))
+        detail = f"+{amount} left count" + (f" | Reason: {reason}" if reason else "")
+
+        await interaction.response.send_message(
+            f"✅ Added **{amount}** to the left count of {user.mention}. "
+            f"New net: **{net}**",
+            ephemeral=True,
+        )
+        await _log(bot, "addleft", interaction.user, user, detail)
+
     # ── /setinvites user amount ────────────────────────────────────────────────
     @bot.tree.command(name="setinvites", description="Set a user's total invite count [Staff only]")
     @app_commands.describe(user="Target user", amount="New total invite count")
