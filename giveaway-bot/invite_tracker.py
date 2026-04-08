@@ -554,14 +554,11 @@ def setup(bot):
 
         updated = _increment(str(user.id), fake=amount)
         net = max(0, (updated.get("invites") or 0) - (updated.get("left") or 0) - (updated.get("fake") or 0))
-        detail = f"+{amount} fake invites" + (f" | Reason: {reason}" if reason else "")
 
         await interaction.response.send_message(
-            f"✅ Added **{amount}** fake invite(s) to {user.mention}. "
-            f"New net: **{net}**",
+            f"✅ Done. New net for {user.mention}: **{net}**",
             ephemeral=True,
         )
-        await _log(bot, "addfake", interaction.user, user, detail)
 
     # ── /addleft user amount [reason] ─────────────────────────────────────────
     @bot.tree.command(name="addleft", description="Add left count to a user [Staff only]")
@@ -584,14 +581,11 @@ def setup(bot):
 
         updated = _increment(str(user.id), left=amount)
         net = max(0, (updated.get("invites") or 0) - (updated.get("left") or 0) - (updated.get("fake") or 0))
-        detail = f"+{amount} left count" + (f" | Reason: {reason}" if reason else "")
 
         await interaction.response.send_message(
-            f"✅ Added **{amount}** to the left count of {user.mention}. "
-            f"New net: **{net}**",
+            f"✅ Done. New net for {user.mention}: **{net}**",
             ephemeral=True,
         )
-        await _log(bot, "addleft", interaction.user, user, detail)
 
     # ── /setinvites user amount ────────────────────────────────────────────────
     @bot.tree.command(name="setinvites", description="Set a user's total invite count [Staff only]")
