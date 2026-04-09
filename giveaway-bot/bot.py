@@ -1005,6 +1005,7 @@ def active():
             "time_remaining": format_timedelta(remaining),
             "total_entries": total_entries,
             "unique_participants": len(g["entries"]),
+            "end_time_input": end.strftime("%Y-%m-%dT%H:%M"),
         })
     return render_template("active.html", giveaways=giveaways_list)
 
@@ -1029,6 +1030,30 @@ def rig_winner(msg_id):
         active_giveaways[msg_id].pop("rigged_winners", None)
         flash("Secret winner removed — giveaway will pick randomly.", "info")
     save_active_giveaways()
+    return redirect(url_for("active"))
+
+
+@app.route("/active/<msg_id>/edit_time", methods=["POST"])
+@login_required
+def edit_giveaway_time(msg_id):
+    if msg_id not in active_giveaways:
+        flash("Giveaway not found or already ended.", "danger")
+        return redirect(url_for("active"))
+    new_time_str = request.form.get("new_end_time", "").strip()
+    if not new_time_str:
+        flash("Please provide a valid end time.", "danger")
+        return redirect(url_for("active"))
+    try:
+        # datetime-local input gives "YYYY-MM-DDTHH:MM"
+        new_end = datetime.strptime(new_time_str, "%Y-%m-%dT%H:%M").replace(tzinfo=timezone.utc)
+        if new_end <= datetime.now(timezone.utc):
+            flash("New end time must be in the future.", "danger")
+            return redirect(url_for("active"))
+        active_giveaways[msg_id]["end_time"] = new_end.replace(tzinfo=None).isoformat()
+        save_active_giveaways()
+        flash(f"End time updated for \"{active_giveaways[msg_id]['prize']}\".", "success")
+    except ValueError:
+        flash("Invalid date/time format.", "danger")
     return redirect(url_for("active"))
 
 
