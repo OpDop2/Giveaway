@@ -26,6 +26,9 @@ ROLE_CONFIG_FILE = "role_config.json"
 HISTORY_FILE = "giveaway_history.json"
 ACTIVE_GIVEAWAYS_FILE = "active_giveaways.json"
 
+# Shared event loop — set in on_ready so Flask can schedule coroutines on it
+bot_loop = None
+
 # ============================================================
 # DATABASE LAYER  (PostgreSQL when DATABASE_URL is set,
 #                  JSON files as fallback for local dev)
@@ -530,6 +533,8 @@ def has_giveaway_host():
 
 @bot.event
 async def on_ready():
+    global bot_loop
+    bot_loop = asyncio.get_event_loop()
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"📊 Dashboard running on port {FLASK_PORT}")
     try:
@@ -991,6 +996,23 @@ def delete_role(role_name):
         flash("Role not found.", "danger")
     return redirect(url_for("roles"))
 
+async def _push_embed_update(msg_id: str):
+    """Re-edit the Discord giveaway message with the updated embed (called from Flask thread)."""
+    try:
+        giveaway = active_giveaways.get(msg_id)
+        if not giveaway:
+            return
+        channel = bot.get_channel(int(giveaway["channel_id"]))
+        if channel is None:
+            return
+        message = await channel.fetch_message(int(msg_id))
+        embed = build_embed(giveaway)
+        await message.edit(embed=embed)
+        print(f"✅ Embed updated for giveaway {msg_id} after time change.")
+    except Exception as e:
+        print(f"⚠️ Failed to update embed for {msg_id}: {e}")
+
+
 @app.route("/active")
 @login_required
 def active():
@@ -1051,6 +1073,9 @@ def edit_giveaway_time(msg_id):
             return redirect(url_for("active"))
         active_giveaways[msg_id]["end_time"] = new_end.replace(tzinfo=None).isoformat()
         save_active_giveaways()
+        # Push the new embed to Discord immediately
+        if bot_loop and bot_loop.is_running():
+            asyncio.run_coroutine_threadsafe(_push_embed_update(msg_id), bot_loop)
         flash(f"End time updated for \"{active_giveaways[msg_id]['prize']}\".", "success")
     except ValueError:
         flash("Invalid date/time format.", "danger")
