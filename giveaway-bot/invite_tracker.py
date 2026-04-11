@@ -154,7 +154,8 @@ def _increment(user_id: str, **deltas: int) -> dict:
 
 async def _log(bot: discord.Client, action: str, staff: discord.Member,
                target: discord.Member, detail: str):
-    print(f"[INVITE LOG] {action} | Staff: {staff} ({staff.id}) | Target: {target} ({target.id}) | {detail}")
+    target_str = f"{target} ({target.id})" if target else "— (all users)"
+    print(f"[INVITE LOG] {action} | Staff: {staff} ({staff.id}) | Target: {target_str} | {detail}")
     # Prefer dashboard-saved channel ID, fall back to env var
     cfg = load_invite_config()
     raw_id = cfg.get("log_channel_id", "").strip() or str(LOG_CHANNEL_ID or "")
@@ -171,9 +172,9 @@ async def _log(bot: discord.Client, action: str, staff: discord.Member,
         color=discord.Color.orange(),
         timestamp=datetime.utcnow(),
     )
-    embed.add_field(name="Staff",  value=f"{staff} (`{staff.id}`)",   inline=True)
-    embed.add_field(name="Target", value=f"{target} (`{target.id}`)", inline=True)
-    embed.add_field(name="Detail", value=detail,                       inline=False)
+    embed.add_field(name="Staff",  value=f"{staff} (`{staff.id}`)", inline=True)
+    embed.add_field(name="Target", value=f"{target} (`{target.id}`)" if target else "All users", inline=True)
+    embed.add_field(name="Detail", value=detail, inline=False)
     try:
         await ch.send(embed=embed)
     except Exception as e:
@@ -636,5 +637,37 @@ def setup(bot):
             ephemeral=True,
         )
         await _log(bot, "resetinvites", interaction.user, user, "full reset — all fields set to 0")
+
+    # ── /resetallinvites ──────────────────────────────────────────────────────
+    @bot.tree.command(name="resetallinvites", description="Reset ALL invite data for every user in the server [Admin only]")
+    @app_commands.describe(confirm="Type 'yes' to confirm — this cannot be undone")
+    async def cmd_resetallinvites(
+        interaction: discord.Interaction,
+        confirm: str,
+    ):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Only server administrators can use this command.", ephemeral=True)
+            return
+        if confirm.strip().lower() != "yes":
+            await interaction.response.send_message(
+                "⚠️ To reset **all** invite data for every user, run this command again with `confirm: yes`.\n"
+                "**This cannot be undone.**",
+                ephemeral=True,
+            )
+            return
+        if not supabase:
+            await interaction.response.send_message("❌ Invite tracking not configured.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            supabase.table(TABLE).delete().neq("userId", "").execute()
+            await interaction.followup.send(
+                "✅ All invite data has been wiped for every user in the server.",
+                ephemeral=True,
+            )
+            await _log(bot, "resetallinvites", interaction.user, None, "entire invite table wiped")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to reset: {e}", ephemeral=True)
 
     print("✅ Invite tracker: all slash commands registered.")
