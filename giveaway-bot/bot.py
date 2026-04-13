@@ -5,10 +5,17 @@ import asyncio
 import random
 import json
 import os
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import functools
+
+# Matches http/https URLs, discord.gg invites, and bare www. links
+LINK_PATTERN = re.compile(
+    r'(https?://[^\s<>]+|discord\.gg/[^\s<>]+|www\.[a-zA-Z0-9\-]+\.[a-zA-Z]{2,}[^\s]*)',
+    re.IGNORECASE,
+)
 
 # ============================================================
 # CONFIGURATION
@@ -1004,6 +1011,65 @@ def delete_role(role_name):
         flash("Role not found.", "danger")
     return redirect(url_for("roles"))
 
+@bot.event
+async def on_message(message):
+    # Always let commands through first
+    await bot.process_commands(message)
+
+    # Ignore bots and DMs
+    if message.author.bot or not message.guild:
+        return
+
+    # Load link monitor config
+    try:
+        from invite_tracker import load_invite_config
+        cfg = load_invite_config()
+    except Exception:
+        return
+
+    if not cfg.get("link_monitor_enabled"):
+        return
+
+    # Determine monitored channels
+    monitored_raw = cfg.get("link_monitor_channels", "").strip()
+    if not monitored_raw:
+        return
+    if monitored_raw.lower() != "all":
+        channel_ids = [c.strip() for c in monitored_raw.split(",") if c.strip().isdigit()]
+        if str(message.channel.id) not in channel_ids:
+            return
+
+    # Exempt server admins
+    if message.author.guild_permissions.administrator:
+        return
+
+    # Exempt staff role
+    staff_role_id = cfg.get("staff_role_id", "").strip()
+    if staff_role_id and staff_role_id.isdigit():
+        staff_role = message.guild.get_role(int(staff_role_id))
+        if staff_role and staff_role in message.author.roles:
+            return
+
+    # Check for links
+    if not LINK_PATTERN.search(message.content):
+        return
+
+    # Delete the offending message
+    try:
+        await message.delete()
+    except (discord.Forbidden, discord.NotFound):
+        return
+
+    # Send a temporary warning (auto-deletes after 5 s)
+    try:
+        await message.channel.send(
+            f"🚫 {message.author.mention} Links are not allowed in this channel.",
+            delete_after=5,
+        )
+    except discord.Forbidden:
+        pass
+
+
 async def _push_embed_update(msg_id: str):
     """Re-edit the Discord giveaway message with the updated embed (called from Flask thread)."""
     try:
@@ -1119,6 +1185,11 @@ def save_settings():
     cfg["staff_role_id"]          = staff_role_id
     cfg["log_channel_id"]         = log_channel_id
     cfg["fake_threshold_minutes"] = int(fake_minutes) if fake_minutes else 10
+
+    # Link monitor settings
+    cfg["link_monitor_enabled"]  = "link_monitor_enabled" in request.form
+    cfg["link_monitor_channels"] = request.form.get("link_monitor_channels", "").strip()
+
     save_invite_config(cfg)
     flash("Settings saved successfully.", "success")
     return redirect(url_for("settings"))

@@ -126,6 +126,62 @@
     </div>
   </div>
 
+  <!-- ── Link Monitor ───────────────────────────────────────── -->
+  <div class="card-custom mb-4">
+    <div class="card-header px-4 py-3">
+      <i class="bi bi-link-45deg text-danger me-2"></i>
+      Link Monitor (Auto-Delete)
+    </div>
+    <div class="p-4">
+      <p class="text-muted small mb-3">
+        Automatically deletes any message containing a URL or Discord invite link. Server admins and staff are exempt.
+        The user gets a 5-second warning message that disappears on its own.
+      </p>
+
+      <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox" name="link_monitor_enabled" id="linkMonitorToggle"
+               {% if cfg.get('link_monitor_enabled') %}checked{% endif %}>
+        <label class="form-check-label text-white" for="linkMonitorToggle">
+          Enable Link Monitor
+        </label>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label text-muted small">Channels to Monitor</label>
+        <input
+          type="text"
+          name="link_monitor_channels"
+          class="form-control"
+          placeholder='e.g. 1234567890123456789, 9876543210987654321  — or type  all  for every channel'
+          value="{{ cfg.get('link_monitor_channels', '') }}"
+          style="background:#0d1117; color:#e2e5ef; border-color:#30363d;"
+        />
+        <div class="form-text text-muted mt-2">
+          <i class="bi bi-info-circle me-1"></i>
+          Paste one or more Channel IDs separated by commas, or type <code>all</code> to monitor every channel in the server.
+          Right-click a channel in Discord → <strong>Copy Channel ID</strong> (requires Developer Mode).
+        </div>
+      </div>
+
+      {% if cfg.get('link_monitor_enabled') %}
+      <div class="d-inline-flex align-items-center gap-2 px-3 py-2 rounded"
+           style="background:#1a2a1a; border:1px solid #2ea043;">
+        <span class="text-success"><i class="bi bi-check-circle-fill"></i></span>
+        <span class="small text-success">
+          Active — monitoring:
+          <code class="text-success">{{ cfg.get('link_monitor_channels') or '(none set)' }}</code>
+        </span>
+      </div>
+      {% else %}
+      <div class="d-inline-flex align-items-center gap-2 px-3 py-2 rounded"
+           style="background:#161b22; border:1px solid #30363d;">
+        <span class="text-muted"><i class="bi bi-dash-circle"></i></span>
+        <span class="small text-muted">Disabled — links are not being monitored</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
   <!-- ── Save button ────────────────────────────────────────── -->
   <div class="d-flex gap-2">
     <button type="submit" class="btn btn-success px-4">
