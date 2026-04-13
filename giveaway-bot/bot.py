@@ -11,9 +11,9 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import functools
 
-# Matches http/https URLs, discord.gg invites, and bare www. links
+# Matches Discord server invite links only
 LINK_PATTERN = re.compile(
-    r'(https?://[^\s<>]+|discord\.gg/[^\s<>]+|www\.[a-zA-Z0-9\-]+\.[a-zA-Z]{2,}[^\s]*)',
+    r'(discord\.gg/[^\s<>]+|discord\.com/invite/[^\s<>]+|discordapp\.com/invite/[^\s<>]+)',
     re.IGNORECASE,
 )
 
