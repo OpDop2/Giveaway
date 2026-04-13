@@ -670,4 +670,41 @@ def setup(bot):
         except Exception as e:
             await interaction.followup.send(f"❌ Failed to reset: {e}", ephemeral=True)
 
+    # ── /purgelinks [limit] ───────────────────────────────────────────────────
+    @bot.tree.command(name="purgelinks", description="Scan and delete messages with Discord invite links [Staff only]")
+    @app_commands.describe(limit="How many recent messages to scan (default 100, max 500)")
+    async def cmd_purgelinks(
+        interaction: discord.Interaction,
+        limit: int = 100,
+    ):
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("❌ You need the Staff role for this command.", ephemeral=True)
+            return
+
+        limit = max(1, min(limit, 500))
+        await interaction.response.defer(ephemeral=True)
+
+        import re
+        invite_re = re.compile(
+            r'(discord\.gg/[^\s<>]+|discord\.com/invite/[^\s<>]+|discordapp\.com/invite/[^\s<>]+)',
+            re.IGNORECASE,
+        )
+
+        deleted = 0
+        failed = 0
+        async for msg in interaction.channel.history(limit=limit):
+            if msg.author.bot:
+                continue
+            if invite_re.search(msg.content):
+                try:
+                    await msg.delete()
+                    deleted += 1
+                except (discord.Forbidden, discord.NotFound):
+                    failed += 1
+
+        result = f"✅ Scanned last **{limit}** messages — deleted **{deleted}** invite link(s)."
+        if failed:
+            result += f" ({failed} couldn't be deleted — missing permissions?)"
+        await interaction.followup.send(result, ephemeral=True)
+
     print("✅ Invite tracker: all slash commands registered.")
