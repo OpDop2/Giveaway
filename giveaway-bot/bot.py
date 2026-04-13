@@ -539,9 +539,17 @@ async def on_ready():
     print(f"📊 Dashboard running on port {FLASK_PORT}")
     try:
         synced = await bot.tree.sync()
-        print(f"🔄 Synced {len(synced)} slash command(s)")
+        print(f"🔄 Synced {len(synced)} slash command(s) globally")
     except Exception as e:
-        print(f"⚠️ Slash sync error: {e}")
+        print(f"⚠️ Global slash sync error: {e}")
+    # Also sync per-guild for instant availability (bypasses Discord's 1-hour global propagation delay)
+    for guild in bot.guilds:
+        try:
+            bot.tree.copy_global_to(guild=guild)
+            await bot.tree.sync(guild=guild)
+            print(f"🔄 Guild sync done: {guild.name}")
+        except Exception as e:
+            print(f"⚠️ Guild sync error ({guild.name}): {e}")
 
     # Restore active giveaways that were running before restart
     restored = load_active_giveaways_from_file()
