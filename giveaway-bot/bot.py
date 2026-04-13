@@ -585,6 +585,9 @@ async def on_ready():
     if restored:
         print(f"✅ Restored {len(restored)} active giveaway(s) from disk.")
 
+    # Auto-purge existing invite links across all channels
+    bot.loop.create_task(_startup_purge_links())
+
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
@@ -1011,63 +1014,77 @@ def delete_role(role_name):
         flash("Role not found.", "danger")
     return redirect(url_for("roles"))
 
+def _is_link_exempt(member: discord.Member) -> bool:
+    """Returns True if the member should be allowed to post invite links."""
+    if member.guild_permissions.administrator:
+        return True
+    try:
+        from invite_tracker import load_invite_config
+        cfg = load_invite_config()
+        staff_role_id = cfg.get("staff_role_id", "").strip()
+        if staff_role_id and staff_role_id.isdigit():
+            role = member.guild.get_role(int(staff_role_id))
+            if role and role in member.roles:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 @bot.event
 async def on_message(message):
-    # Always let commands through first
+    # Always let prefix commands through
     await bot.process_commands(message)
 
     # Ignore bots and DMs
     if message.author.bot or not message.guild:
         return
 
-    # Load link monitor config
-    try:
-        from invite_tracker import load_invite_config
-        cfg = load_invite_config()
-    except Exception:
+    # Exempt admins / staff
+    if _is_link_exempt(message.author):
         return
 
-    if not cfg.get("link_monitor_enabled"):
-        return
-
-    # Determine monitored channels
-    monitored_raw = cfg.get("link_monitor_channels", "").strip()
-    if not monitored_raw:
-        return
-    if monitored_raw.lower() != "all":
-        channel_ids = [c.strip() for c in monitored_raw.split(",") if c.strip().isdigit()]
-        if str(message.channel.id) not in channel_ids:
-            return
-
-    # Exempt server admins
-    if message.author.guild_permissions.administrator:
-        return
-
-    # Exempt staff role
-    staff_role_id = cfg.get("staff_role_id", "").strip()
-    if staff_role_id and staff_role_id.isdigit():
-        staff_role = message.guild.get_role(int(staff_role_id))
-        if staff_role and staff_role in message.author.roles:
-            return
-
-    # Check for links
+    # Delete Discord invite links instantly
     if not LINK_PATTERN.search(message.content):
         return
 
-    # Delete the offending message
     try:
         await message.delete()
     except (discord.Forbidden, discord.NotFound):
         return
 
-    # Send a temporary warning (auto-deletes after 5 s)
     try:
         await message.channel.send(
-            f"🚫 {message.author.mention} Links are not allowed in this channel.",
+            f"🚫 {message.author.mention} Server invite links are not allowed here.",
             delete_after=5,
         )
     except discord.Forbidden:
         pass
+
+
+async def _startup_purge_links():
+    """Scans all text channels on startup and removes existing invite links."""
+    await bot.wait_until_ready()
+    total = 0
+    for guild in bot.guilds:
+        for channel in guild.text_channels:
+            try:
+                async for msg in channel.history(limit=200):
+                    if msg.author.bot:
+                        continue
+                    if not LINK_PATTERN.search(msg.content):
+                        continue
+                    if _is_link_exempt(msg.author):
+                        continue
+                    try:
+                        await msg.delete()
+                        total += 1
+                        await asyncio.sleep(0.3)   # stay well under rate limits
+                    except (discord.Forbidden, discord.NotFound):
+                        pass
+            except (discord.Forbidden, discord.HTTPException):
+                pass  # skip channels the bot can't read
+    print(f"🧹 Startup purge complete — removed {total} invite link(s) from history.")
 
 
 async def _push_embed_update(msg_id: str):
