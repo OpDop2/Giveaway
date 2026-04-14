@@ -274,7 +274,10 @@ class GiveawayView(discord.ui.View):
 
     @discord.ui.button(label="🎉 JOIN", style=discord.ButtonStyle.success, custom_id="giveaway_join")
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except (discord.NotFound, discord.HTTPException):
+            return  # interaction expired before we could respond
         msg_id = self.message_id
         if msg_id not in active_giveaways:
             await interaction.followup.send("This giveaway has ended!", ephemeral=True)
@@ -1066,24 +1069,29 @@ async def _startup_purge_links():
     """Scans all text channels on startup and removes existing invite links."""
     await bot.wait_until_ready()
     total = 0
-    for guild in bot.guilds:
-        for channel in guild.text_channels:
-            try:
-                async for msg in channel.history(limit=200):
-                    if msg.author.bot:
-                        continue
-                    if not LINK_PATTERN.search(msg.content):
-                        continue
-                    if _is_link_exempt(msg.author):
-                        continue
-                    try:
-                        await msg.delete()
-                        total += 1
-                        await asyncio.sleep(0.3)   # stay well under rate limits
-                    except (discord.Forbidden, discord.NotFound):
-                        pass
-            except (discord.Forbidden, discord.HTTPException):
-                pass  # skip channels the bot can't read
+    try:
+        for guild in bot.guilds:
+            for channel in guild.text_channels:
+                try:
+                    async for msg in channel.history(limit=200):
+                        if msg.author.bot:
+                            continue
+                        if not LINK_PATTERN.search(msg.content):
+                            continue
+                        # Resolve to Member so guild_permissions is available
+                        member = guild.get_member(msg.author.id)
+                        if member and _is_link_exempt(member):
+                            continue
+                        try:
+                            await msg.delete()
+                            total += 1
+                            await asyncio.sleep(0.3)  # stay under rate limits
+                        except (discord.Forbidden, discord.NotFound):
+                            pass
+                except (discord.Forbidden, discord.HTTPException):
+                    pass  # skip channels the bot can't read
+    except Exception as e:
+        print(f"⚠️ Startup purge error: {e}")
     print(f"🧹 Startup purge complete — removed {total} invite link(s) from history.")
 
 
